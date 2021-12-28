@@ -69,6 +69,19 @@ function getRadiusStrategy(type) {
  * @memberof Link/helper
  */
 function buildLinkPathDefinition(sourceCoords = {}, targetCoords = {}, type = LINE_TYPES.STRAIGHT, breakPoints = []) {
+  if (type === LINE_TYPES.CURVE_SPLINE) {
+    return buildSplinePathDefinition(sourceCoords, targetCoords, breakPoints);
+  } else {
+    return buildLineOrRadiusPathDefinition(sourceCoords, targetCoords, type, breakPoints);
+  }
+}
+
+function buildLineOrRadiusPathDefinition(
+  sourceCoords = {},
+  targetCoords = {},
+  type = LINE_TYPES.STRAIGHT,
+  breakPoints = []
+) {
   const { x: sx, y: sy } = sourceCoords;
   const validType = LINE_TYPES[type] || LINE_TYPES.STRAIGHT;
   const calcRadiusFn = getRadiusStrategy(validType);
@@ -84,6 +97,30 @@ function buildLinkPathDefinition(sourceCoords = {}, targetCoords = {}, type = LI
     .join("");
 
   return `M${sx},${sy}${restOfLinkPath}`;
+}
+
+function buildSplinePathDefinition(sourceCoords = {}, targetCoords = {}, breakPoints = []) {
+  const { x: sx, y: sy } = sourceCoords;
+  const restOfLinkPoints = [...breakPoints, targetCoords];
+  let linkPath = `M ${sx},${sy}`;
+  if (restOfLinkPoints.length === 1) {
+    linkPath += ` L ${restOfLinkPoints[0].x},${restOfLinkPoints[0].y}`;
+    return linkPath;
+  } else {
+    // http://stackoverflow.com/questions/7054272/how-to-draw-smooth-curve-through-n-points-using-javascript-html5-canvas
+    linkPath += " Q ";
+    let i;
+    for (i = 0; i < restOfLinkPoints.length - 2; i++) {
+      linkPath += " " + restOfLinkPoints[i].x + "," + restOfLinkPoints[i].y;
+      const xc = (restOfLinkPoints[i].x + restOfLinkPoints[i + 1].x) / 2;
+      const yc = (restOfLinkPoints[i].y + restOfLinkPoints[i + 1].y) / 2;
+      linkPath += " " + xc + "," + yc;
+    }
+    linkPath += " " + restOfLinkPoints[i].x + "," + restOfLinkPoints[i].y;
+    linkPath += " " + restOfLinkPoints[i + 1].x + "," + restOfLinkPoints[i + 1].y;
+  }
+
+  return linkPath;
 }
 
 export { buildLinkPathDefinition };
