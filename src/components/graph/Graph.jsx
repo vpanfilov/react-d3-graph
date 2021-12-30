@@ -17,6 +17,7 @@ import {
   getCenterAndZoomTransformation,
   initializeGraphState,
   initializeNodes,
+  isPositionInBounds,
 } from "./graph.helper";
 import { renderGraph } from "./graph.renderer";
 import { merge, debounce, throwErr } from "../../utils";
@@ -192,7 +193,14 @@ export default class Graph extends React.Component {
    */
   _graphBindD3ToReactComponent() {
     if (!this.state.config.d3.disableLinkForce) {
-      this.state.simulation.nodes(this.state.d3Nodes).on("tick", this._tick);
+      this.state.simulation.nodes(this.state.d3Nodes).on("tick", () => {
+        // Propagate d3Nodes changes to nodes
+        const newNodes = {};
+        for (const node of this.state.d3Nodes) {
+          newNodes[node.id] = node;
+        }
+        this._tick({ d3Nodes: this.state.d3Nodes, nodes: newNodes });
+      });
       this._graphLinkForceConfig();
     }
     if (!this.state.config.freezeAllDragEvents) {
@@ -236,14 +244,20 @@ export default class Graph extends React.Component {
       draggedNode.oldX = draggedNode.x;
       draggedNode.oldY = draggedNode.y;
 
-      draggedNode.x += d3Event.dx;
-      draggedNode.y += d3Event.dy;
+      const newX = draggedNode.x + d3Event.dx;
+      const newY = draggedNode.y + d3Event.dy;
+      const shouldUpdateNode = !this.state.config.bounded || isPositionInBounds({ x: newX, y: newY }, this.state);
 
-      // set nodes fixing coords fx and fy
-      draggedNode["fx"] = draggedNode.x;
-      draggedNode["fy"] = draggedNode.y;
+      if (shouldUpdateNode) {
+        draggedNode.x = newX;
+        draggedNode.y = newY;
 
-      this._tick({ draggedNode });
+        // set nodes fixing coords fx and fy
+        draggedNode["fx"] = draggedNode.x;
+        draggedNode["fy"] = draggedNode.y;
+
+        this._tick({ draggedNode });
+      }
     }
   };
 
@@ -313,10 +327,10 @@ export default class Graph extends React.Component {
 
     d3SelectAll(`#${this.state.id}-${CONST.GRAPH_CONTAINER_ID}`).attr("transform", transform);
 
-    this.state.config.panAndZoom && this.setState({ transform: transform.k });
+    this.setState({ transform });
 
     // only send zoom change events if the zoom has changed (_zoomed() also gets called when panning)
-    if (this.debouncedOnZoomChange && this.state.previousZoom !== transform.k) {
+    if (this.debouncedOnZoomChange && this.state.previousZoom !== transform.k && !this.state.config.panAndZoom) {
       this.debouncedOnZoomChange(this.state.previousZoom, transform.k);
       this.setState({ previousZoom: transform.k });
     }
@@ -351,44 +365,48 @@ export default class Graph extends React.Component {
    */
   onClickNode = clickedNodeId => {
     const clickedNode = this.state.nodes[clickedNodeId];
+    if (!this.nodeClickTimer) {
+      // Note: onDoubleClickNode is not defined we don't need a long wait
+      // to understand weather a second click will arrive soon or not
+      // we can immediately trigger the click timer because we're 100%
+      // that the double click even is never intended
+      const ttl = this.props.onDoubleClickNode ? CONST.TTL_DOUBLE_CLICK_IN_MS : 0;
+      this.nodeClickTimer = setTimeout(() => {
+        if (this.state.config.collapsible) {
+          const leafConnections = getTargetLeafConnections(clickedNodeId, this.state.links, this.state.config);
+          const links = toggleLinksMatrixConnections(this.state.links, leafConnections, this.state.config);
+          const d3Links = toggleLinksConnections(this.state.d3Links, links);
+          const firstLeaf = leafConnections?.["0"];
 
-    if (this.state.config.collapsible) {
-      const leafConnections = getTargetLeafConnections(clickedNodeId, this.state.links, this.state.config);
-      const links = toggleLinksMatrixConnections(this.state.links, leafConnections, this.state.config);
-      const d3Links = toggleLinksConnections(this.state.d3Links, links);
-      const firstLeaf = leafConnections?.["0"];
+          let isExpanding = false;
 
-      let isExpanding = false;
+          if (firstLeaf) {
+            const visibility = links[firstLeaf.source][firstLeaf.target];
 
-      if (firstLeaf) {
-        const visibility = links[firstLeaf.source][firstLeaf.target];
-
-        isExpanding = visibility === 1;
-      }
-
-      this._tick(
-        {
-          links,
-          d3Links,
-        },
-        () => {
-          this.props.onClickNode && this.props.onClickNode(clickedNodeId, clickedNode);
-
-          if (isExpanding) {
-            this._graphNodeDragConfig();
+            isExpanding = visibility === 1;
           }
-        }
-      );
-    } else {
-      if (!this.nodeClickTimer) {
-        this.nodeClickTimer = setTimeout(() => {
+
+          this._tick(
+            {
+              links,
+              d3Links,
+            },
+            () => {
+              this.props.onClickNode && this.props.onClickNode(clickedNodeId, clickedNode);
+
+              if (isExpanding) {
+                this._graphNodeDragConfig();
+              }
+            }
+          );
+        } else {
           this.props.onClickNode && this.props.onClickNode(clickedNodeId, clickedNode);
-          this.nodeClickTimer = null;
-        }, CONST.TTL_DOUBLE_CLICK_IN_MS);
-      } else {
-        this.props.onDoubleClickNode && this.props.onDoubleClickNode(clickedNodeId, clickedNode);
-        this.nodeClickTimer = clearTimeout(this.nodeClickTimer);
-      }
+        }
+        this.nodeClickTimer = null;
+      }, ttl);
+    } else {
+      this.props.onDoubleClickNode && this.props.onDoubleClickNode(clickedNodeId, clickedNode);
+      this.nodeClickTimer = clearTimeout(this.nodeClickTimer);
     }
   };
 
@@ -561,7 +579,8 @@ export default class Graph extends React.Component {
     // in order to properly update graph data we need to pause eventual d3 ongoing animations
     newGraphElements && this.pauseSimulation();
 
-    const transform = newConfig.panAndZoom !== this.state.config.panAndZoom ? 1 : this.state.transform;
+    const transform =
+      newConfig.panAndZoom !== this.state.config.panAndZoom ? { x: 0, y: 0, k: 1 } : this.state.transform;
     const focusedNodeId = nextProps.data.focusedNodeId;
     const d3FocusedNode = this.state.d3Nodes.find(node => `${node.id}` === `${focusedNodeId}`);
     const containerElId = `${this.state.id}-${CONST.GRAPH_WRAPPER_ID}`;
@@ -658,7 +677,7 @@ export default class Graph extends React.Component {
       this.state.config,
       this.state.highlightedNode,
       this.state.highlightedLink,
-      this.state.transform
+      this.state.transform.k
     );
 
     const svgStyle = {

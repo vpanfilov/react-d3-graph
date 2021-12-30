@@ -4,6 +4,7 @@
  * Offers a series of methods that isolate the way graph elements are built (nodes and links mainly).
  */
 import CONST from "./graph.const";
+import { isNil } from "../../utils";
 
 import { buildLinkPathDefinition } from "../link/link.helper";
 import { getMarkerId } from "../marker/marker.helper";
@@ -60,6 +61,7 @@ function buildLinkProps(link, nodes, links, config, linkCallbacks, highlightedNo
   let y2 = nodes?.[target]?.y || 0;
 
   const type = link.type || config.link.type;
+  const selfLinkDirection = link.selfLinkDirection || config.link.selfLinkDirection;
 
   let mainNodeParticipates = false;
 
@@ -132,7 +134,15 @@ function buildLinkProps(link, nodes, links, config, linkCallbacks, highlightedNo
     strokeWidth
   );
 
-  const d = buildLinkPathDefinition(sourceCoords, targetCoords, type, link.breakPoints);
+  const d = buildLinkPathDefinition(
+    sourceCoords,
+    targetCoords,
+    type,
+    link.breakPoints,
+    link.source,
+    link.target,
+    selfLinkDirection
+  );
 
   return {
     className: CONST.LINK_CLASS_NAME,
@@ -223,8 +233,13 @@ function buildNodeProps(node, config, nodeCallbacks = {}, highlightedNode, highl
   const fontColor = node.fontColor || config.node.fontColor;
 
   let renderLabel = config.node.renderLabel;
-  if (node.renderLabel !== undefined && typeof node.renderLabel === "boolean") {
+  if (!isNil(node.renderLabel) && typeof node.renderLabel === "boolean") {
     renderLabel = node.renderLabel;
+  }
+
+  var labelClass = config.node.labelClass;
+  if (!isNil(node.labelClass) && typeof node.labelClass === "string") {
+    labelClass = node.labelClass;
   }
 
   return {
@@ -244,6 +259,7 @@ function buildNodeProps(node, config, nodeCallbacks = {}, highlightedNode, highl
     opacity,
     overrideGlobalViewGenerator: !node.viewGenerator && node.svg,
     renderLabel,
+    labelClass,
     size: isSizeNumericValue ? nodeSize * t : { height: nodeSize.height * t, width: nodeSize.width * t },
     stroke,
     strokeWidth: strokeWidth * t,
