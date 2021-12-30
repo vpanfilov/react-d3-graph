@@ -1,5 +1,5 @@
 const HIGHLIGHTED = "H";
-const MARKER_SMALL_SIZE = 16;
+const MARKER_SMALL_SIZE = 9;
 const MARKER_MEDIUM_OFFSET = 2;
 const MARKER_LARGE_OFFSET = 4;
 // internal marker flavors for cross referencing

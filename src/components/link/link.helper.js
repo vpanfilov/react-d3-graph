@@ -100,8 +100,8 @@ function buildLineOrRadiusPathDefinition(
 }
 
 function buildSplinePathDefinition(sourceCoords = {}, targetCoords = {}, breakPoints = []) {
-  const { x: sx, y: sy } = sourceCoords;
-  const restOfLinkPoints = [...breakPoints, targetCoords];
+  const { x: sx, y: sy } = breakPoints[0];
+  const restOfLinkPoints = breakPoints.slice(1);
   let linkPath = `M ${sx},${sy}`;
   if (restOfLinkPoints.length === 1) {
     linkPath += ` L ${restOfLinkPoints[0].x},${restOfLinkPoints[0].y}`;
